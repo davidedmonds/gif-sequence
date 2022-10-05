@@ -2,70 +2,90 @@ package main
 
 import (
 	"fmt"
+	_ "image/gif"
 	"io/fs"
+	"log"
 	"math/rand"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/layout"
-	"fyne.io/fyne/v2/storage"
-	"fyne.io/fyne/v2/theme"
-	"fyne.io/x/fyne/widget"
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
 
-var gifs []*widget.AnimatedGif
+var (
+	gifs []*AnimatedGIF
+	idx  = 0
+	tick = 0
+)
 
 func main() {
 	rand.Seed(time.Now().Unix())
 
-	a := app.New()
-	a.Settings().SetTheme(theme.DarkTheme())
+	ebiten.SetFullscreen(true)
+	ebiten.SetTPS(100)
 
-	scanGifs()
-
-	w := a.NewWindow("gif-sequence")
-	w.SetFullScreen(true)
-	w.SetContent(updatingGif())
-	w.ShowAndRun()
-}
-
-func scanGifs() {
-	err := filepath.WalkDir("./gifs", func(path string, d fs.DirEntry, err error) error {
-		if strings.HasSuffix(path, ".gif") {
-			g, err := widget.NewAnimatedGif(storage.NewFileURI(path))
-			if err != nil {
-				fmt.Println(err)
-				// continue
-			}
-			g.Start()
-			gifs = append(gifs, g)
-		}
-		return nil
-	})
-	if err != nil {
-		panic(err)
+	g := &Game{}
+	g.load()
+	if err := ebiten.RunGame(g); err != nil {
+		log.Fatal(err)
 	}
 }
 
-func updatingGif() *fyne.Container {
-	c := container.New(layout.NewMaxLayout())
-
-	go func(c *fyne.Container) {
-		for {
-			g := nextGif()
-			c.Add(g)
-			time.Sleep(5 * time.Second)
-			c.Remove(g)
-		}
-	}(c)
-
-	return c
+type Game struct {
+	loaded      bool
+	currentFile string
 }
 
-func nextGif() *widget.AnimatedGif {
-	return gifs[rand.Intn(len(gifs))]
+func (g *Game) load() {
+	go func() {
+		err := filepath.WalkDir("./gifs", func(path string, d fs.DirEntry, err error) error {
+			if strings.HasSuffix(path, ".gif") {
+				g.currentFile = path
+				g, err := NewAnimatedGIF(path)
+				if err != nil {
+					log.Fatal(err)
+				}
+				gifs = append(gifs, g)
+			}
+			return nil
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		idx = rand.Intn(len(gifs))
+		g.loaded = true
+	}()
+}
+
+func (g *Game) Update() error {
+	if g.loaded {
+		tick++
+		if tick%500 == 0 {
+			idx = rand.Intn(len(gifs))
+			tick = 0
+		}
+	}
+
+	return nil
+}
+
+func (g *Game) Draw(screen *ebiten.Image) {
+	if g.loaded {
+		img := gifs[idx].GetImage()
+
+		translate := (960 - img.Bounds().Size().X) / 2
+		geo := ebiten.GeoM{}
+		geo.Translate(float64(translate), 0)
+
+		screen.DrawImage(img, &ebiten.DrawImageOptions{GeoM: geo})
+	} else {
+		ebitenutil.DebugPrint(screen, fmt.Sprintf("loading %s", g.currentFile))
+	}
+}
+
+func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
+	return 960, 540
 }
