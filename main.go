@@ -74,6 +74,8 @@ func (g *Game) Update() error {
 
 func (g *Game) Draw(screen *ebiten.Image) {
 	if g.loaded {
+		screen.Fill(gifs[idx].bgs[0])
+
 		img := gifs[idx].GetImage()
 
 		translate := (960 - img.Bounds().Size().X) / 2

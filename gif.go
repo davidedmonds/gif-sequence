@@ -1,7 +1,10 @@
 package main
 
 import (
+	"image"
+	"image/color"
 	"image/gif"
+	"math"
 	"os"
 	"path/filepath"
 
@@ -13,6 +16,7 @@ import (
 type AnimatedGIF struct {
 	frames []*ebiten.Image
 	delays []int
+	bgs    []*color.RGBA
 	ticks  uint
 	frame  uint
 }
@@ -23,6 +27,8 @@ func NewAnimatedGIF(path string) (*AnimatedGIF, error) {
 		return nil, errors.Wrap(err, "failed to open gif")
 	}
 
+	defer f.Close()
+
 	g, err := gif.DecodeAll(f)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to decode gif")
@@ -30,20 +36,56 @@ func NewAnimatedGIF(path string) (*AnimatedGIF, error) {
 
 	fCount := len(g.Image)
 	frames := make([]*ebiten.Image, fCount)
+	bgs := make([]*color.RGBA, fCount)
 	delays := make([]int, fCount)
 
 	for i := 0; i < fCount; i++ {
+		bgs[i] = avgColor(g.Image[i])
+		delays[i] = g.Delay[i]
+
 		resized := resize.Resize(0, 540, g.Image[i], resize.Bicubic)
 		frames[i] = ebiten.NewImageFromImage(resized)
-		delays[i] = g.Delay[i]
 	}
 
 	return &AnimatedGIF{
 		frames: frames,
+		bgs:    bgs,
 		delays: delays,
 		ticks:  0,
 		frame:  0,
 	}, nil
+}
+
+func avgColor(img image.Image) *color.RGBA {
+	imgSize := img.Bounds().Size()
+
+	var redSum float64
+	var greenSum float64
+	var blueSum float64
+
+	for x := 0; x < imgSize.X; x++ {
+		for y := 0; y < imgSize.Y; y++ {
+			pixel := img.At(x, y)
+			col := color.RGBAModel.Convert(pixel).(color.RGBA)
+
+			redSum += float64(col.R)
+			greenSum += float64(col.G)
+			blueSum += float64(col.B)
+		}
+	}
+
+	imgArea := float64(imgSize.X * imgSize.Y)
+
+	redAverage := math.Round(redSum / imgArea)
+	greenAverage := math.Round(greenSum / imgArea)
+	blueAverage := math.Round(blueSum / imgArea)
+
+	return &color.RGBA{
+		R: uint8(redAverage),
+		G: uint8(greenAverage),
+		B: uint8(blueAverage),
+		A: 255,
+	}
 }
 
 func (g *AnimatedGIF) GetImage() *ebiten.Image {
